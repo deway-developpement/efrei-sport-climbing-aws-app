@@ -121,8 +121,10 @@ Plateforme serverless pour automatiser les flux de l'association **Efrei Sport C
 
 ### Bucket S3
 
-- \`efrei-sport-climbing-app-data/tickets/climb-up/\` : Tickets PDF Climb Up
-- \`efrei-sport-climbing-app-data/ressources/calendar.ics\` : Calendrier iCal
+- \`efrei-sport-climbing-app-test-data-v2/...\` : Bucket utilise par l'environnement \`test\`
+- \`efrei-sport-climbing-app-data/...\` : Bucket utilise par l'environnement \`prod\`
+- \`tickets/climb-up/\` : Tickets PDF Climb Up
+- \`ressources/calendar.ics\` : Calendrier iCal
 
 ---
 
@@ -217,6 +219,14 @@ sam local invoke TicketsRegistorFunction --event events/event_s3_tickets.json
 ```bash
 sam logs -n DiscordEventHandlerFunction --stack-name efrei-sport-climbing-aws-app --tail
 ```
+
+## 🔎 Indexation Algolia
+
+Une première intégration Algolia est prévue pour les utilisateurs via `functions/algolia_users_indexer/`.
+
+- Le stream DynamoDB de `Efrei-Sport-Climbing-App.users` alimente l'index Algolia `esc_users`
+- Le secret `Efrei-Sport-Climbing-App/secrets/algolia` doit contenir `ALGOLIA_APP_ID` et `ALGOLIA_ADMIN_API_KEY`
+- Pour indexer les données existantes, exécuter `python3 utils/backfill_algolia_users.py` avec `ALGOLIA_SECRET_PATH` et `ALGOLIA_USERS_INDEX`
 
 ---
 

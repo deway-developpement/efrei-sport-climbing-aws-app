@@ -8,6 +8,7 @@ profile = "account_esc"
 capabilities = "CAPABILITY_NAMED_IAM"
 disable_rollback = true
 image_repositories = []
+parameter_overrides = "EnvironmentName=prod"
 
 [default.deploy.parameters]
 stack_name = "EfreiSportClimbingTest"
@@ -18,5 +19,6 @@ region = "eu-west-3"
 profile = "default"
 confirm_changeset = true
 capabilities = "CAPABILITY_NAMED_IAM"
-disable_rollback = true
+disable_rollback = false
 image_repositories = []
+parameter_overrides = "EnvironmentName=test"

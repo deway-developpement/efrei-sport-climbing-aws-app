@@ -24,11 +24,13 @@ Lorsqu'un fichier PDF est supprimé de `tickets/climb-up/` :
 
 ## ⚙️ Configuration
 
-Cette fonction n'utilise pas de variables d'environnement spécifiques.
+| Variable | Description |
+|----------|-------------|
+| `S3_BUCKET_NAME` | Nom du bucket S3 cible. `efrei-sport-climbing-app-test-data-v2` en `test`, `efrei-sport-climbing-app-data` en `prod` |
 
 ## 🔗 Déclencheur
 
-**S3 Event Notification** sur le bucket `efrei-sport-climbing-app-data` :
+**S3 Event Notification** sur le bucket configure via `S3_BUCKET_NAME` :
 
 | Événement | Filtre |
 |-----------|--------|
@@ -88,14 +90,14 @@ Pour chaque Record :
 
 ```bash
 # Upload un ticket PDF
-aws s3 cp ticket.pdf s3://efrei-sport-climbing-app-data/tickets/climb-up/ticket-001.pdf
+aws s3 cp ticket.pdf s3://efrei-sport-climbing-app-test-data-v2/tickets/climb-up/ticket-001.pdf
 ```
 
 ### Retirer un ticket du stock
 
 ```bash
 # Supprimer un ticket
-aws s3 rm s3://efrei-sport-climbing-app-data/tickets/climb-up/ticket-001.pdf
+aws s3 rm s3://efrei-sport-climbing-app-test-data-v2/tickets/climb-up/ticket-001.pdf
 ```
 
 ## ⚠️ Notes importantes
