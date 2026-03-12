@@ -4,6 +4,24 @@ Description: |
   efrei-sport-climbing-aws-app
   Sample SAM Template for efrei-sport-climbing-aws-app
 
+Parameters:
+  EnvironmentName:
+    Type: String
+    Default: test
+    AllowedValues:
+      - test
+      - prod
+
+Conditions:
+  IsTestEnvironment: !Equals [!Ref EnvironmentName, test]
+
+Mappings:
+  EnvironmentConfig:
+    test:
+      S3BucketName: efrei-sport-climbing-app-test-data-v2
+    prod:
+      S3BucketName: efrei-sport-climbing-app-data
+
 Globals:
   Function:
     Timeout: 3
@@ -37,6 +55,7 @@ Resources:
           ANTREBLOC_CHANNEL: '955472985735721010'
           CLIMBUP_CHANNEL: '955473017746628628'
           CLIMBUP_BORDEAUX_CHANNEL: '1022523538986508360'
+          S3_BUCKET_NAME: !FindInMap [EnvironmentConfig, !Ref EnvironmentName, S3BucketName]
       Policies:
         - AmazonDynamoDBFullAccess
         - AWSSecretsManagerGetSecretValuePolicy:
@@ -44,7 +63,7 @@ Resources:
         - AWSSecretsManagerGetSecretValuePolicy:
             SecretArn: !Ref HelloAssoClientSecret
         - S3ReadPolicy:
-            BucketName: efrei-sport-climbing-app-data
+            BucketName: !FindInMap [EnvironmentConfig, !Ref EnvironmentName, S3BucketName]
       Layers:
         - !Ref LayerCommons
     Metadata:
@@ -52,7 +71,7 @@ Resources:
       BuildProperties:
         Minify: true
         Target: es2020
-        Sourcemap: true
+        Sourcemap: !If [IsTestEnvironment, true, false]
         EntryPoints:
           - app.ts
         External:
@@ -81,6 +100,7 @@ Resources:
           ANTREBLOC_CHANNEL: '955472985735721010'
           CLIMBUP_CHANNEL: '955473017746628628'
           CLIMBUP_BORDEAUX_CHANNEL: '1022523538986508360'
+          S3_BUCKET_NAME: !FindInMap [EnvironmentConfig, !Ref EnvironmentName, S3BucketName]
       Policies:
         - AmazonDynamoDBFullAccess
         - AWSSecretsManagerGetSecretValuePolicy:
@@ -92,7 +112,7 @@ Resources:
       BuildProperties:
         Minify: true
         Target: es2020
-        Sourcemap: true
+        Sourcemap: !If [IsTestEnvironment, true, false]
         EntryPoints:
           - app.ts
         External:
@@ -117,6 +137,7 @@ Resources:
         Variables:
           DISCORD_ROLE_ID: '752444499795640360'
           GUILD_ID: '714391758926118962'
+          S3_BUCKET_NAME: !FindInMap [EnvironmentConfig, !Ref EnvironmentName, S3BucketName]
       Policies:
         - AmazonDynamoDBFullAccess
         - AWSSecretsManagerGetSecretValuePolicy:
@@ -124,7 +145,7 @@ Resources:
         - AWSSecretsManagerGetSecretValuePolicy:
             SecretArn: !Ref HelloAssoClientSecret
         - S3ReadPolicy:
-            BucketName: efrei-sport-climbing-app-data
+            BucketName: !FindInMap [EnvironmentConfig, !Ref EnvironmentName, S3BucketName]
       Layers:
         - !Ref LayerCommons
     Metadata:
@@ -132,7 +153,7 @@ Resources:
       BuildProperties:
         Minify: true
         Target: es2020
-        Sourcemap: true
+        Sourcemap: !If [IsTestEnvironment, true, false]
         EntryPoints:
           - app.ts
         External:
@@ -146,6 +167,9 @@ Resources:
       Runtime: nodejs22.x
       Architectures:
         - arm64
+      Environment:
+        Variables:
+          S3_BUCKET_NAME: !FindInMap [EnvironmentConfig, !Ref EnvironmentName, S3BucketName]
       Events:
         S3Event:
           Type: S3
@@ -174,7 +198,7 @@ Resources:
       Policies:
         - AmazonDynamoDBFullAccess
         - S3ReadPolicy:
-            BucketName: efrei-sport-climbing-app-data
+            BucketName: !FindInMap [EnvironmentConfig, !Ref EnvironmentName, S3BucketName]
       Layers:
         - !Ref LayerCommons
     Metadata:
@@ -182,7 +206,7 @@ Resources:
       BuildProperties:
         Minify: true
         Target: es2020
-        Sourcemap: true
+        Sourcemap: !If [IsTestEnvironment, true, false]
         EntryPoints:
           - app.ts
         External:
@@ -199,6 +223,45 @@ Resources:
         - AttributeName: id
           KeyType: HASH
       BillingMode: PAY_PER_REQUEST
+      StreamSpecification:
+        StreamViewType: NEW_AND_OLD_IMAGES
+  AlgoliaUsersIndexerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: functions/algolia_users_indexer/
+      Handler: app.lambdaHandler
+      Runtime: nodejs22.x
+      Timeout: 10
+      Architectures:
+        - arm64
+      Events:
+        UsersStream:
+          Type: DynamoDB
+          Properties:
+            Stream: !GetAtt UsersTable.StreamArn
+            StartingPosition: LATEST
+            BatchSize: 10
+            Enabled: true
+      Environment:
+        Variables:
+          ALGOLIA_SECRET_PATH: Efrei-Sport-Climbing-App/secrets/algolia
+          ALGOLIA_USERS_INDEX: esc_users
+      Policies:
+        - AWSSecretsManagerGetSecretValuePolicy:
+            SecretArn: !Ref AlgoliaSecret
+      Layers:
+        - !Ref LayerCommons
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Minify: true
+        Target: es2020
+        Sourcemap: !If [IsTestEnvironment, true, false]
+        EntryPoints:
+          - app.ts
+        External:
+          - commons
+          - aws-sdk
   SessionsTable:
     Type: AWS::DynamoDB::Table
     Properties:
@@ -253,7 +316,7 @@ Resources:
     Type: AWS::S3::Bucket
     DeletionPolicy: Retain
     Properties:
-      BucketName: efrei-sport-climbing-app-data
+      BucketName: !FindInMap [EnvironmentConfig, !Ref EnvironmentName, S3BucketName]
   DiscordBotTokenSecret:
     Type: AWS::SecretsManager::Secret
     Properties:
@@ -264,6 +327,11 @@ Resources:
     Properties:
       Name: Efrei-Sport-Climbing-App/secrets/helloasso_client_secret
       Description: HelloAsso Api Client Id and Secret
+  AlgoliaSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: Efrei-Sport-Climbing-App/secrets/algolia
+      Description: Algolia Application ID and Admin API Key
   UsersTableBackupPlan:
     Type: AWS::Backup::BackupPlan
     Properties:
@@ -339,3 +407,6 @@ Outputs:
   Issues:
     Description: Table for issues of the association
     Value: !Ref IssuesTable
+  AlgoliaUsersIndexerFunction:
+    Description: Lambda Function ARN for Algolia user indexing
+    Value: !GetAtt AlgoliaUsersIndexerFunction.Arn
