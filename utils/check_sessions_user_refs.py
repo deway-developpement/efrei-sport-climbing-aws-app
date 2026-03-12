@@ -8,16 +8,14 @@ from typing import Any, Dict, Iterator, Set
 import boto3
 from botocore.config import Config
 
-"""
-launch with
-python3 check_sessions_user_refs.py \
-  --region eu-west-3 \
-  --profile account_esc \
-  --sessions-table "Efrei-Sport-Climbing-App.sessions" \
-  --users-table "Efrei-Sport-Climbing-App.users" \
-  --output json \
-  --ids-only
-"""
+# Example:
+# poetry run python utils/check_sessions_user_refs.py \
+#   --region eu-west-3 \
+#   --profile account_esc \
+#   --sessions-table "Efrei-Sport-Climbing-App.sessions" \
+#   --users-table "Efrei-Sport-Climbing-App.users" \
+#   --output json \
+#   --ids-only
 
 
 def attr_str(item: Dict[str, Any], key: str) -> str | None:
@@ -52,8 +50,7 @@ def scan_all(
         kwargs["ExpressionAttributeNames"] = expr_names
 
     for page in paginator.paginate(**kwargs):
-        for item in page.get("Items", []):
-            yield item
+        yield from page.get("Items", [])
 
 
 def main() -> None:

@@ -13,6 +13,11 @@ Run these commands from the repository root unless noted otherwise:
 - `cd functions/discord_event_handler && npm run lint`: lint and auto-fix TypeScript in one function package.
 - `cd functions/discord_event_handler && npm test`: compile with `tsc` and run Jest.
 - `cd layers/commons && npm run build`: compile the shared layer.
+- `poetry env use "$(pyenv which python)" && poetry install --no-root`: initialize the local Python utility environment.
+- `poetry run pylint utils tests`: evaluate Python utility code quality.
+- `poetry run ruff check utils tests`: lint Python utility scripts and tests.
+- `poetry run mypy utils`: type-check Python utility scripts.
+- `poetry run pytest`: execute Python utility tests with coverage output.
 
 ## Coding Style & Naming Conventions
 TypeScript is the default language. Prettier enforces 4-space indentation, semicolons, single quotes, trailing commas, and a `printWidth` of 120. ESLint uses `@typescript-eslint/recommended` with Prettier integration; `any` is currently allowed where needed. Follow the existing naming style: snake_case for many utility functions, PascalCase for enums/types, and descriptive folder names matching the Lambda purpose.

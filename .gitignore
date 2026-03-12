@@ -56,6 +56,9 @@ bower_components
 
 # Compiled binary addons (https://nodejs.org/api/addons.html)
 build/Release
+__pycache__/
+*.py[cod]
+.coverage
 
 # Dependency directories
 node_modules/
