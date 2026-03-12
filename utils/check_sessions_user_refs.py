@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 import argparse
-import sys
 import csv
 import json
-from typing import Iterable, Dict, Any, Set
+import sys
+from typing import Any, Dict, Iterator, Set
 
 import boto3
 from botocore.config import Config
@@ -35,12 +35,17 @@ def attr_str(item: Dict[str, Any], key: str) -> str | None:
     return None
 
 
-def scan_all(client, table_name: str, projection: str | None = None, expr_names: Dict[str, str] | None = None) -> Iterable[Dict[str, Any]]:
+def scan_all(
+    client: Any,
+    table_name: str,
+    projection: str | None = None,
+    expr_names: Dict[str, str] | None = None,
+) -> Iterator[Dict[str, Any]]:
     """
     Generator that yields all items from a DynamoDB table scan with pagination.
     """
     paginator = client.get_paginator("scan")
-    kwargs = {"TableName": table_name}
+    kwargs: Dict[str, Any] = {"TableName": table_name}
     if projection:
         kwargs["ProjectionExpression"] = projection
     if expr_names:
@@ -51,7 +56,7 @@ def scan_all(client, table_name: str, projection: str | None = None, expr_names:
             yield item
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(
         description=(
             "Validate sessions table: "

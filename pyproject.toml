@@ -1,0 +1,38 @@
+[project]
+name = "efrei-sport-climbing-aws-app-utils"
+version = "0.1.0"
+description = "Python utility scripts for the ESC AWS SAM repository"
+authors = [{ name = "Paul Mairesse", email = "54858036+P4UL-M@users.noreply.github.com" }]
+requires-python = ">=3.9,<4.0"
+dependencies = ["boto3>=1.42.66,<2.0.0"]
+
+[dependency-groups]
+dev = ["mypy>=1.16.0,<2.0.0", "ruff>=0.11.0,<1.0.0"]
+
+[tool.poetry]
+package-mode = false
+
+[tool.ruff]
+line-length = 120
+target-version = "py39"
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+
+[tool.mypy]
+python_version = "3.14"
+files = ["utils"]
+check_untyped_defs = true
+disallow_incomplete_defs = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+pretty = true
+
+[[tool.mypy.overrides]]
+module = ["boto3", "botocore", "botocore.*"]
+ignore_missing_imports = true
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"

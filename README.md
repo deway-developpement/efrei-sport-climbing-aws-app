@@ -226,7 +226,8 @@ Une première intégration Algolia est prévue pour les utilisateurs via `functi
 
 - Le stream DynamoDB de `Efrei-Sport-Climbing-App.users` alimente l'index Algolia `esc_users`
 - Le secret `Efrei-Sport-Climbing-App/secrets/algolia` doit contenir `ALGOLIA_APP_ID` et `ALGOLIA_ADMIN_API_KEY`
-- Pour indexer les données existantes, exécuter `python3 utils/backfill_algolia_users.py` avec `ALGOLIA_SECRET_PATH` et `ALGOLIA_USERS_INDEX`
+- Initialiser l'environnement Python local avec Poetry en utilisant l'interpréteur géré par `pyenv` : `poetry env use "$(pyenv which python)" && poetry install --no-root`
+- Pour indexer les données existantes, exécuter `poetry run python utils/backfill_algolia_users.py` avec `ALGOLIA_SECRET_PATH` et `ALGOLIA_USERS_INDEX`
 
 ---
 
