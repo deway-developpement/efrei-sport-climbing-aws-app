@@ -85,6 +85,10 @@ async function handleRecord(record: DynamoDBRecord): Promise<void> {
 export const lambdaHandler = async (event: DynamoDBStreamEvent): Promise<void> => {
     console.log('Algolia users stream batch size:', event.Records.length);
     for (const record of event.Records) {
-        await handleRecord(record);
+        try {
+            await handleRecord(record);
+        } catch (error) {
+            console.error('Failed to process stream record', JSON.stringify(record.dynamodb?.Keys), error);
+        }
     }
 };

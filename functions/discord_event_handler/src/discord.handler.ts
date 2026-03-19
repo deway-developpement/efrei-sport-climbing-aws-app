@@ -889,19 +889,24 @@ export async function button_handler(body: DiscordInteraction): Promise<APIGatew
         }
 
         await deferUpdate(body);
-        let response: DiscordMessagePost;
-        if (parsed.action === 'rec_more') {
-            response = await expand_recommendation_handler(body, parsed.campaignId, parsed.sessionId);
-        } else if (parsed.action === 'rec_remind') {
-            response = await remind_recommendation_handler(body, parsed.campaignId, parsed.sessionId);
-        } else if (parsed.action === 'rec_similar') {
-            response = await similar_recommendation_handler(body, parsed.campaignId, parsed.sessionId);
-        } else if (parsed.action === 'rec_back') {
-            response = await back_recommendation_handler(body, parsed.campaignId, parsed.sessionId);
-        } else {
-            response = await dismiss_recommendation_handler(body, parsed.campaignId, parsed.sessionId);
+        try {
+            let response: DiscordMessagePost;
+            if (parsed.action === 'rec_more') {
+                response = await expand_recommendation_handler(body, parsed.campaignId, parsed.sessionId);
+            } else if (parsed.action === 'rec_remind') {
+                response = await remind_recommendation_handler(body, parsed.campaignId, parsed.sessionId);
+            } else if (parsed.action === 'rec_similar') {
+                response = await similar_recommendation_handler(body, parsed.campaignId, parsed.sessionId);
+            } else if (parsed.action === 'rec_back') {
+                response = await back_recommendation_handler(body, parsed.campaignId, parsed.sessionId);
+            } else {
+                response = await dismiss_recommendation_handler(body, parsed.campaignId, parsed.sessionId);
+            }
+            await editResponse(body, response);
+        } catch (error) {
+            console.error('Error handling recommendation action', parsed.action, error);
+            await editResponse(body, { content: 'Cette recommandation n\'est plus disponible.', embeds: [], components: [] });
         }
-        await editResponse(body, response);
     } else if (custom_id.startsWith('mark_order_processed=')) {
         const orderId = custom_id.split('=')[1];
         return {

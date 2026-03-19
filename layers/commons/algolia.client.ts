@@ -165,7 +165,7 @@ export function toAlgoliaUserRecord(user: User, stats?: UserStats): AlgoliaUserR
         firstName: user.firstName,
         lastName: user.lastName,
         promo: user.promo,
-        nbOfSeances: stats?.nbOfSeances || user.nbOfSeances,
+        nbOfSeances: stats?.nbOfSeances ?? user.nbOfSeances,
         fullName,
         fullNameNormalized: normalizeString(fullName),
         initials: getInitials(user.firstName, user.lastName),
