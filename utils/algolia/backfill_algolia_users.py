@@ -8,7 +8,6 @@ import urllib.request
 
 import boto3
 
-
 def require_env(name: str) -> str:
     value = os.environ.get(name)
     if not value:

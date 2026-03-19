@@ -1,4 +1,4 @@
-from utils.check_sessions_user_refs import attr_str
+from utils.validation.check_sessions_user_refs import attr_str
 
 
 def test_attr_str_returns_string_value():

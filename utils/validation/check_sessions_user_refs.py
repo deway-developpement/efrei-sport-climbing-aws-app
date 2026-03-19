@@ -9,7 +9,7 @@ import boto3
 from botocore.config import Config
 
 # Example:
-# poetry run python utils/check_sessions_user_refs.py \
+# poetry run python utils/validation/check_sessions_user_refs.py \
 #   --region eu-west-3 \
 #   --profile account_esc \
 #   --sessions-table "Efrei-Sport-Climbing-App.sessions" \
