@@ -47,14 +47,17 @@ Resources:
             Method: post
       Environment:
         Variables:
-          DISCORD_APP_ID: '1071807223044513822'
-          PUBLIC_KEY: 'f89f9764c9ce8ce28b688306bf9c996a686ce1de04e804091d52d602016fc77a'
-          DISCORD_ROLE_ID: '752444499795640360'
-          DISCORD_ROLE_ADMIN_ID: '714392325673189416'
-          GUILD_ID: '714391758926118962'
-          ANTREBLOC_CHANNEL: '955472985735721010'
-          CLIMBUP_CHANNEL: '955473017746628628'
-          CLIMBUP_BORDEAUX_CHANNEL: '1022523538986508360'
+          DISCORD_APP_ID: '1372127887096025181'
+          PUBLIC_KEY: '8605d1e852a3a665e53ce2cacced91e87a237a621855adfdbf69aeaba2ac4a65'
+          DISCORD_ROLE_ID: '1372130966935572500'
+          DISCORD_ROLE_ADMIN_ID: '1372131016591933551'
+          GUILD_ID: '1371519432190333059'
+          ANTREBLOC_CHANNEL: '1371521997594689547'
+          CLIMBUP_CHANNEL: '1371522019254075412'
+          CLIMBUP_BORDEAUX_CHANNEL: '1371522048303562872'
+          ALGOLIA_SECRET_PATH: Efrei-Sport-Climbing-App/secrets/algolia
+          ALGOLIA_SESSIONS_INDEX: esc_sessions
+          SESSION_RECOMMENDATIONS_TABLE_NAME: !Ref SessionRecommendationsTable
           S3_BUCKET_NAME: !FindInMap [EnvironmentConfig, !Ref EnvironmentName, S3BucketName]
       Policies:
         - AmazonDynamoDBFullAccess
@@ -62,6 +65,8 @@ Resources:
             SecretArn: !Ref DiscordBotTokenSecret
         - AWSSecretsManagerGetSecretValuePolicy:
             SecretArn: !Ref HelloAssoClientSecret
+        - AWSSecretsManagerGetSecretValuePolicy:
+            SecretArn: !Ref AlgoliaSecret
         - S3ReadPolicy:
             BucketName: !FindInMap [EnvironmentConfig, !Ref EnvironmentName, S3BucketName]
       Layers:
@@ -96,15 +101,18 @@ Resources:
             Enabled: true
       Environment:
         Variables:
-          PUBLIC_KEY: f89f9764c9ce8ce28b688306bf9c996a686ce1de04e804091d52d602016fc77a
-          ANTREBLOC_CHANNEL: '955472985735721010'
-          CLIMBUP_CHANNEL: '955473017746628628'
-          CLIMBUP_BORDEAUX_CHANNEL: '1022523538986508360'
+          PUBLIC_KEY: 8605d1e852a3a665e53ce2cacced91e87a237a621855adfdbf69aeaba2ac4a65
+          ALGOLIA_SECRET_PATH: Efrei-Sport-Climbing-App/secrets/algolia
+          ANTREBLOC_CHANNEL: '1371521997594689547'
+          CLIMBUP_CHANNEL: '1371522019254075412'
+          CLIMBUP_BORDEAUX_CHANNEL: '1371522048303562872'
           S3_BUCKET_NAME: !FindInMap [EnvironmentConfig, !Ref EnvironmentName, S3BucketName]
       Policies:
         - AmazonDynamoDBFullAccess
         - AWSSecretsManagerGetSecretValuePolicy:
             SecretArn: !Ref DiscordBotTokenSecret
+        - AWSSecretsManagerGetSecretValuePolicy:
+            SecretArn: !Ref AlgoliaSecret
       Layers:
         - !Ref LayerCommons
     Metadata:
@@ -135,8 +143,8 @@ Resources:
             Method: post
       Environment:
         Variables:
-          DISCORD_ROLE_ID: '752444499795640360'
-          GUILD_ID: '714391758926118962'
+          DISCORD_ROLE_ID: '1372130966935572500'
+          GUILD_ID: '1371519432190333059'
           S3_BUCKET_NAME: !FindInMap [EnvironmentConfig, !Ref EnvironmentName, S3BucketName]
       Policies:
         - AmazonDynamoDBFullAccess
@@ -242,13 +250,114 @@ Resources:
             StartingPosition: LATEST
             BatchSize: 10
             Enabled: true
+        UserStatsStream:
+          Type: DynamoDB
+          Properties:
+            Stream: !GetAtt UserStatsTable.StreamArn
+            StartingPosition: LATEST
+            BatchSize: 10
+            Enabled: true
       Environment:
         Variables:
           ALGOLIA_SECRET_PATH: Efrei-Sport-Climbing-App/secrets/algolia
           ALGOLIA_USERS_INDEX: esc_users
+          USER_STATS_TABLE_NAME: !Ref UserStatsTable
       Policies:
         - AWSSecretsManagerGetSecretValuePolicy:
             SecretArn: !Ref AlgoliaSecret
+        - DynamoDBReadPolicy:
+            TableName: !Ref UsersTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref UserStatsTable
+      Layers:
+        - !Ref LayerCommons
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Minify: true
+        Target: es2020
+        Sourcemap: !If [IsTestEnvironment, true, false]
+        EntryPoints:
+          - app.ts
+        External:
+          - commons
+          - aws-sdk
+  WeeklySessionRecommenderFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: functions/weekly_session_recommender/
+      Handler: app.lambdaHandler
+      Runtime: nodejs22.x
+      Timeout: 60
+      Architectures:
+        - arm64
+      Events:
+        WeeklySchedule:
+          Type: Schedule
+          Properties:
+            Schedule: cron(0 16 ? * MON *)
+            Name: WeeklySessionRecommenderSchedule
+            Description: Weekly Discord DM session recommendations
+            Enabled: true
+      Environment:
+        Variables:
+          GUILD_ID: '1371519432190333059'
+          ANTREBLOC_CHANNEL: '1371521997594689547'
+          CLIMBUP_CHANNEL: '1371522019254075412'
+          CLIMBUP_BORDEAUX_CHANNEL: '1371522048303562872'
+          SESSION_RECOMMENDATIONS_TABLE_NAME: !Ref SessionRecommendationsTable
+          WEEKLY_RECOMMENDER_TARGET_USER_ID: '315852341620244491'
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref UsersTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref UserStatsTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref SessionsTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref SessionRecommendationsTable
+        - AWSSecretsManagerGetSecretValuePolicy:
+            SecretArn: !Ref DiscordBotTokenSecret
+      Layers:
+        - !Ref LayerCommons
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Minify: true
+        Target: es2020
+        Sourcemap: !If [IsTestEnvironment, true, false]
+        EntryPoints:
+          - app.ts
+        External:
+          - commons
+          - aws-sdk
+  SessionRecommendationReminderFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: functions/weekly_session_recommender/
+      Handler: app.reminderLambdaHandler
+      Runtime: nodejs22.x
+      Timeout: 60
+      Architectures:
+        - arm64
+      Events:
+        ReminderSchedule:
+          Type: Schedule
+          Properties:
+            Schedule: rate(1 hour)
+            Name: SessionRecommendationReminderSchedule
+            Description: Sends pending Discord DM recommendation reminders
+            Enabled: true
+      Environment:
+        Variables:
+          SESSION_RECOMMENDATIONS_TABLE_NAME: !Ref SessionRecommendationsTable
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref SessionsTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref SessionRecommendationsTable
+        - AWSSecretsManagerGetSecretValuePolicy:
+            SecretArn: !Ref DiscordBotTokenSecret
       Layers:
         - !Ref LayerCommons
     Metadata:
@@ -277,6 +386,76 @@ Resources:
         - AttributeName: sortId
           KeyType: RANGE
       BillingMode: PAY_PER_REQUEST
+  UserStatsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: Efrei-Sport-Climbing-App.user-stats
+      AttributeDefinitions:
+        - AttributeName: userId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: userId
+          KeyType: HASH
+      BillingMode: PAY_PER_REQUEST
+      StreamSpecification:
+        StreamViewType: NEW_AND_OLD_IMAGES
+  SessionRecommendationsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: Efrei-Sport-Climbing-App.session-recommendations
+      AttributeDefinitions:
+        - AttributeName: userId
+          AttributeType: S
+        - AttributeName: sortId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: userId
+          KeyType: HASH
+        - AttributeName: sortId
+          KeyType: RANGE
+      BillingMode: PAY_PER_REQUEST
+      TimeToLiveSpecification:
+        AttributeName: expiresAt
+        Enabled: true
+  DmConversationsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: Efrei-Sport-Climbing-App.dm-conversations
+      AttributeDefinitions:
+        - AttributeName: discordUserId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: discordUserId
+          KeyType: HASH
+      BillingMode: PAY_PER_REQUEST
+      TimeToLiveSpecification:
+        AttributeName: expiresAt
+        Enabled: true
+  UserCalendarFeedsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: Efrei-Sport-Climbing-App.user-calendar-feeds
+      AttributeDefinitions:
+        - AttributeName: userId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: userId
+          KeyType: HASH
+      BillingMode: PAY_PER_REQUEST
+  AssociationAnnouncementsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: Efrei-Sport-Climbing-App.association-announcements
+      AttributeDefinitions:
+        - AttributeName: id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: id
+          KeyType: HASH
+      BillingMode: PAY_PER_REQUEST
+      TimeToLiveSpecification:
+        AttributeName: expiresAt
+        Enabled: true
   TicketsTable:
     Type: AWS::DynamoDB::Table
     Properties:
@@ -319,6 +498,7 @@ Resources:
       BucketName: !FindInMap [EnvironmentConfig, !Ref EnvironmentName, S3BucketName]
   DiscordBotTokenSecret:
     Type: AWS::SecretsManager::Secret
+    DeletionPolicy: Retain
     Properties:
       Name: Efrei-Sport-Climbing-App/secrets/discord_bot_token
       Description: Discord Bot Token
@@ -401,6 +581,21 @@ Outputs:
   Sessions:
     Description: Table for sessions of the bot
     Value: !Ref SessionsTable
+  UserStats:
+    Description: Table for computed user statistics used for Algolia enrichment
+    Value: !Ref UserStatsTable
+  SessionRecommendations:
+    Description: Table for session recommendation delivery and attribution
+    Value: !Ref SessionRecommendationsTable
+  DmConversations:
+    Description: Table for Discord DM conversation state
+    Value: !Ref DmConversationsTable
+  UserCalendarFeeds:
+    Description: Table for saved user calendar feed URLs
+    Value: !Ref UserCalendarFeedsTable
+  AssociationAnnouncements:
+    Description: Table for association announcements injected into the DM worker context
+    Value: !Ref AssociationAnnouncementsTable
   Tickets:
     Description: Table for tickets of the association
     Value: !Ref TicketsTable
