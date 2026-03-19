@@ -1,4 +1,4 @@
-from utils.backfill_algolia_users import require_env, to_algolia_record
+from utils.algolia.backfill_algolia_users import require_env, to_algolia_record
 
 
 def test_require_env_returns_value(monkeypatch):
