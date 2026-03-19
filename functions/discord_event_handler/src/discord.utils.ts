@@ -9,7 +9,10 @@ import {
 } from 'commons/discord.types';
 
 export function checkRole(body: DiscordInteraction): APIGatewayProxyResult | undefined {
-    const member: DiscordGuildMember = body.member as DiscordGuildMember;
+    const member: DiscordGuildMember | undefined = body.member as DiscordGuildMember | undefined;
+    if (!member) {
+        return;
+    }
     if (!member.roles.includes(process.env.DISCORD_ROLE_ID as string)) {
         const response: DiscordInteractionResponse = {
             type: DiscordInteractionResponseType.ChannelMessageWithSource,

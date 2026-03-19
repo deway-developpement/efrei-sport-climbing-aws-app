@@ -39,6 +39,18 @@ export async function deferResponse(body: DiscordInteraction, ephemeral = false)
     });
 }
 
+export async function deferUpdate(body: DiscordInteraction) {
+    fetch('https://discord.com/api/v8/interactions/' + body.id + '/' + body.token + '/callback', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            type: DiscordInteractionResponseType.DeferredUpdateMessage,
+        }),
+    });
+}
+
 export async function editResponse(body: DiscordInteraction, message: DiscordMessagePost) {
     await fetch(
         'https://discord.com/api/v8/webhooks/' + process.env.DISCORD_APP_ID + '/' + body.token + '/messages/@original',

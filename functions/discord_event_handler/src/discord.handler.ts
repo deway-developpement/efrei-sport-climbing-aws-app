@@ -19,6 +19,7 @@ import {
     DiscordComponentSubmit,
 } from 'commons/discord.types';
 import { getUser, listUsers, putUser } from 'commons/dynamodb.users';
+import { getUserStats } from 'commons/dynamodb.user_stats';
 import {
     addUserToSession,
     countParticipants,
@@ -27,15 +28,38 @@ import {
     deleteSession,
     findSession,
     getSession,
+    listSessionUnexpired,
     putSession,
     removeUserFromSession,
 } from 'commons/dynamodb.sessions';
 import { IssueStatus, OrderRecord, OrderState, User } from 'commons/dynamodb.types';
 import { getSecret } from 'commons/aws.secret';
+import { sendAlgoliaSessionClickEvent, sendAlgoliaSessionConversionEvent } from 'commons/algolia.insights';
+import { toAlgoliaSessionRecord, upsertAlgoliaRecord } from 'commons/algolia.client';
+import {
+    buildExpandedRecommendationComponents,
+    buildExpandedRecommendationEmbed,
+    buildInitialRecommendationEmbed,
+    buildSessionRecommendationRecord,
+    buildSessionRecordCandidates,
+    buildSimilarSessionsComponents,
+    buildSimilarSessionsEmbed,
+    parseRecommendationCustomId,
+    recommendSessionsForUser,
+    ScoredSessionRecommendation,
+} from 'commons/session.recommendations';
+import {
+    buildRecommendationSortId,
+    findLatestRecommendationForUserSession,
+    getSessionRecommendation,
+    putSessionRecommendation,
+    updateSessionRecommendationState,
+} from 'commons/dynamodb.session_recommendations';
 import { getFile } from './s3.images';
 import {
     editResponse,
     deferResponse,
+    deferUpdate,
     editResponseWithFile,
     editResponseWithFiles,
     updateButtonOfMessage,
@@ -68,15 +92,27 @@ import {
     BUTTON_FETCH_TICKETS,
 } from 'commons/discord.components';
 import { cancelPaiementOfOrder, getOrderDetails } from 'commons/helloasso.request';
+import {
+    createOrJoinSessionWorkflow,
+    createSessionWorkflow,
+    joinSessionWorkflow,
+    leaveSessionWorkflow,
+} from 'commons/session.discord.workflows';
 
 const SECRET_PATH = 'Efrei-Sport-Climbing-App/secrets/discord_bot_token';
 const HELLO_ASSO_SECRET_PATH = 'Efrei-Sport-Climbing-App/secrets/helloasso_client_secret';
+const HELLO_ASSO_DISCORD_USER_ID_FIELD = 'Identifiant (À obtenir sur le server avec la commande /helloasso)';
+const ALGOLIA_SESSIONS_INDEX = process.env.ALGOLIA_SESSIONS_INDEX || 'esc_sessions';
 const DAYS = ['dimanche', 'lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi'];
 const CHANNELS: { [key: string]: string } = {
     antrebloc: process.env.ANTREBLOC_CHANNEL as string,
     'climb-up': process.env.CLIMBUP_CHANNEL as string,
     'climb-up-bordeaux': process.env.CLIMBUP_BORDEAUX_CHANNEL as string,
 };
+
+function getInteractionUserId(body: DiscordInteraction): string | undefined {
+    return body.member?.user.id || body.user?.id;
+}
 
 function streamToString(stream: any): Promise<string> {
     const chunks: any[] = [];
@@ -110,109 +146,28 @@ const parseDate = (dateStr: string): Date => {
     return new Date(year, month - 1, day); // month is 0-indexed
 };
 
+const getOrderItemDiscordUserId = (item: { customFields?: { name: string; answer: string }[] }): string | null => {
+    const value = item.customFields?.find((field) => field.name === HELLO_ASSO_DISCORD_USER_ID_FIELD)?.answer?.trim();
+    if (!value || !/^\d{17,19}$/.test(value)) {
+        return null;
+    }
+    return value;
+};
+
 async function create_seance(
     user: User,
     member: DiscordGuildMember,
     date: Date,
     location: string,
 ): Promise<DiscordMessagePost> {
-    const { DISCORD_BOT_TOKEN } = await getSecret(SECRET_PATH);
-
-    const button1: DiscordButton = {
-        type: DiscordComponentType.Button,
-        style: 1,
-        label: 'Rejoindre',
-        custom_id: 'register',
-    };
-    const button2: DiscordButton = {
-        type: DiscordComponentType.Button,
-        style: DiscordButtonStyle.Danger,
-        label: 'Se désinscrire',
-        custom_id: 'leave',
-    };
-    const actionRow: DiscordActionRow = {
-        type: DiscordComponentType.ActionRow,
-        components: [button1, button2],
-    };
-
-    const embed: DiscordEmbed = {
-        title: date.toLocaleDateString('fr-FR', {
-            weekday: 'long',
-            year: 'numeric',
-            month: 'long',
-            day: 'numeric',
-            hour: 'numeric',
-            minute: 'numeric',
-        }),
-        description: `Séance de grimpe à **${location.charAt(0).toUpperCase() + location.slice(1)}**.`,
-        fields: [
-            {
-                name: `Participants :`,
-                value: `- ${user.firstName} ${user.lastName}\n`,
-                inline: false,
-            },
-        ],
-        author: {
-            name: user.firstName + ' ' + user.lastName,
-            icon_url: member?.user.avatar
-                ? `https://cdn.discordapp.com/avatars/${member.user.id}/${member.user.avatar}.png`
-                : `https://cdn.discordapp.com/embed/avatars/${member?.user.discriminator}.png`,
-            url: 'https://discord.com/users/' + member.user.id,
-        },
-        color: 15844367,
-        thumbnail: {
-            url: `attachment://${location}.png`,
-        },
-    };
-    // create message to send to discord with file attachment
-    const message: DiscordMessagePost = {
-        embeds: [embed],
-        components: [actionRow],
-        attachments: [
-            {
-                filename: `${location}.png`,
-                id: '0',
-                description: 'image',
-            },
-        ],
-    };
-
-    const headers = new Headers();
-    headers.append('Authorization', `Bot ${DISCORD_BOT_TOKEN}`);
-    const formData = new FormData();
-    formData.append('payload_json', JSON.stringify(message));
-    const file = await getFile(`images/${location}.png`);
-    formData.append('files[0]', file);
-
-    // make request at discord api to send a message to the channel with the file attachment
-    const reponse = (await fetch('https://discord.com/api/v8/channels/' + CHANNELS[location] + '/messages', {
-        method: 'POST',
-        headers: headers,
-        body: formData,
-    }).then((res) => res.json())) as DiscordMessage;
-
-    await putSession(
-        {
-            id: reponse.id,
-            date: date,
-            location: location,
-        },
-        [user.id],
-    );
-
-    const dayString = date.toLocaleDateString('fr-FR', {
-        weekday: 'long',
+    const result = await createSessionWorkflow(user, date, location, {
+        authorName: `${user.firstName} ${user.lastName}`,
+        authorIconUrl: member?.user.avatar
+            ? `https://cdn.discordapp.com/avatars/${member.user.id}/${member.user.avatar}.png`
+            : `https://cdn.discordapp.com/embed/avatars/${member?.user.discriminator}.png`,
+        authorUrl: `https://discord.com/users/${member.user.id}`,
     });
-
-    const hourString = date.toLocaleTimeString('fr-FR', {
-        hour: 'numeric',
-    });
-
-    return {
-        content: `Ajout d'une séance de grimpe à **${
-            location.charAt(0).toUpperCase() + location.slice(1)
-        }** le **${dayString}** à **${hourString}**.`,
-    };
+    return result.response;
 }
 
 async function seance_handlher(body: DiscordInteraction, user: User): Promise<DiscordMessagePost> {
@@ -227,28 +182,15 @@ async function seance_handlher(body: DiscordInteraction, user: User): Promise<Di
     const date = generateDate(day, hour);
 
     console.log('Creating session for date:', date, 'and location:', location);
-    const session = await findSession(date, location).catch(() => undefined);
-    console.log('Session found:', session);
-
-    if (session) {
-        const { DISCORD_BOT_TOKEN } = await getSecret(SECRET_PATH);
-        const message = await fetch(
-            `https://discord.com/api/v8/channels/${CHANNELS[location]}/messages/${session.id}`,
-            {
-                method: 'GET',
-                headers: {
-                    Authorization: `Bot ${DISCORD_BOT_TOKEN}`,
-                },
-            },
-        )
-            .then((res) => res.json())
-            .then((res) => res as DiscordMessage);
-        const res = await add_to_session_handler(message, user);
-        return res;
-    } else {
-        const response = await create_seance(user, member as DiscordGuildMember, date, location);
-        return response;
-    }
+    const result = await createOrJoinSessionWorkflow(user, date, location, {
+        authorName: `${user.firstName} ${user.lastName}`,
+        authorIconUrl: member?.user.avatar
+            ? `https://cdn.discordapp.com/avatars/${member.user.id}/${member.user.avatar}.png`
+            : `https://cdn.discordapp.com/embed/avatars/${member?.user.discriminator}.png`,
+        authorUrl: `https://discord.com/users/${member?.user.id}`,
+    });
+    console.log('Session workflow result:', result.action, result.session.id);
+    return result.response;
 }
 
 async function inscription_handler(body: DiscordInteraction): Promise<APIGatewayProxyResult> {
@@ -669,115 +611,208 @@ export async function command_handler(body: DiscordInteraction): Promise<APIGate
 }
 
 async function remove_from_session_handler(body: DiscordInteraction, user: User): Promise<DiscordMessagePost> {
-    const { message } = body;
-    const { DISCORD_BOT_TOKEN } = await getSecret(SECRET_PATH);
-
-    try {
-        await removeUserFromSession(message?.id as string, body.member?.user.id as string);
-    } catch (err) {
-        return {
-            content: "Vous n'êtes pas inscrit à cette séance",
-        };
-    }
-    const session = await getSession(message?.id as string).catch((err) => {
-        console.log(err);
-        return;
-    });
-    if (!session) {
-        return {
-            content: "Cette séance n'existe plus",
-        };
-    }
-    const nbParticipants = await countParticipants(message?.id as string);
-    if (nbParticipants === 0) {
-        await deleteSession(body.message?.id as string);
-        await fetch(`https://discord.com/api/v8/channels/${body.channel_id}/messages/${body.message?.id}`, {
-            method: 'DELETE',
-            headers: {
-                Authorization: `Bot ${DISCORD_BOT_TOKEN}`,
-            },
-        });
-        return { content: 'La séance a été supprimée.' };
-    } else {
-        // edit embed
-        const message = (await fetch(
-            `https://discord.com/api/v8/channels/${body.channel_id}/messages/${body.message?.id}`,
-            {
-                method: 'GET',
-                headers: {
-                    Authorization: `Bot ${DISCORD_BOT_TOKEN}`,
-                },
-            },
-        ).then((res) => res.json())) as DiscordMessage;
-        const embed = message.embeds[0];
-        const location = session.location;
-        const field = embed.fields?.filter((field) => field.name === 'Participants :')[0];
-        embed.thumbnail = { url: `attachment://${location}.png` };
-
-        if (field) {
-            field.value = field.value?.replace(`- ${user.firstName} ${user.lastName}`, '');
-            field.value = field.value?.replace('\n\n', '\n');
-        }
-
-        await fetch(`https://discord.com/api/v8/channels/${body.channel_id}/messages/${body.message?.id}`, {
-            method: 'PATCH',
-            headers: {
-                Authorization: `Bot ${DISCORD_BOT_TOKEN}`,
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-                embeds: [embed],
-            }),
-        });
-        return { content: 'Vous avez été retiré de la séance.' };
-    }
+    const result = await leaveSessionWorkflow(user, body.message?.id as string);
+    return result.response;
 }
 
 async function add_to_session_handler(message: DiscordMessage, user: User): Promise<DiscordMessagePost> {
-    const { DISCORD_BOT_TOKEN } = await getSecret(SECRET_PATH);
+    const result = await joinSessionWorkflow(user, message.id);
+    return result.response;
+}
 
-    try {
-        await addUserToSession(message?.id as string, user.id as string);
-    } catch (err: any) {
-        return {
-            content: 'Vous êtes déjà inscrit à cette séance',
-        };
+async function loadRecommendationContext(userId: string, campaignId: string, sessionId: string) {
+    const recommendation = await getSessionRecommendation(userId, buildRecommendationSortId(campaignId, sessionId));
+    if (!recommendation) {
+        throw new Error('Recommendation not found');
     }
-    const session = await getSession(message?.id as string).catch((err) => {
-        console.log(err);
+
+    const sessions = await listSessionUnexpired();
+    const sessionRecords = buildSessionRecordCandidates(sessions);
+    const sessionRecord = sessionRecords.find((candidate) => candidate.id === sessionId);
+    if (!sessionRecord) {
+        throw new Error('Recommended session no longer available');
+    }
+
+    return {
+        recommendation,
+        sessionRecords,
+        scoredRecommendation: {
+            session: sessionRecord,
+            score: recommendation.score,
+            reasons: recommendation.reasons,
+        },
+    };
+}
+
+async function ensureSessionRecommendation(
+    userId: string,
+    campaignId: string,
+    recommendation: ScoredSessionRecommendation,
+    sessionRecords: ScoredSessionRecommendation[],
+): Promise<void> {
+    const sortId = buildRecommendationSortId(campaignId, recommendation.session.id);
+    const existing = await getSessionRecommendation(userId, sortId);
+    if (existing) {
         return;
+    }
+    await putSessionRecommendation(
+        buildSessionRecommendationRecord({
+            userId,
+            campaignId,
+            recommendation,
+            similarSessionIds: sessionRecords
+                .filter((item) => item.session.id !== recommendation.session.id)
+                .slice(0, 3)
+                .map((item) => item.session.id),
+        }),
+    );
+}
+
+async function expand_recommendation_handler(body: DiscordInteraction, campaignId: string, sessionId: string): Promise<DiscordMessagePost> {
+    const userId = getInteractionUserId(body);
+    if (!userId) {
+        return { content: 'Utilisateur Discord introuvable.' };
+    }
+
+    const { recommendation, scoredRecommendation } = await loadRecommendationContext(userId, campaignId, sessionId);
+    if (!recommendation.algoliaClickSent) {
+        await sendAlgoliaSessionClickEvent('Session Recommendation Expanded', userId, sessionId).catch((error) => {
+            console.error('Failed to send recommendation click event', error);
+        });
+    }
+    await updateSessionRecommendationState(userId, recommendation.sortId, 'expanded', {
+        feedback: 'more',
+        expandedAt: recommendation.expandedAt || new Date(),
+        algoliaClickSent: true,
     });
 
-    if (!session) {
-        return {
-            content: "Cette séance n'existe plus",
-        };
-    } else {
-        const location = session.location;
-        const embed = message.embeds[0];
-        const field = embed.fields?.filter((field) => field.name === 'Participants :')[0];
-        embed.thumbnail = { url: `attachment://${location}.png` };
+    return {
+        embeds: [buildExpandedRecommendationEmbed(scoredRecommendation)],
+        components: buildExpandedRecommendationComponents(campaignId, scoredRecommendation),
+    };
+}
 
-        if (field) {
-            field.value = `${field.value}\n- ${user.firstName} ${user.lastName}\n`;
-            field.value = field.value?.replace('\n\n', '\n');
-        } else {
-            return {
-                content: "Une erreur s'est produite",
-            };
-        }
-        await fetch(`https://discord.com/api/v8/channels/${CHANNELS[location]}/messages/${message.id}`, {
-            method: 'PATCH',
-            headers: {
-                Authorization: `Bot ${DISCORD_BOT_TOKEN}`,
-                'content-type': 'application/json',
-            },
-            body: JSON.stringify({
-                embeds: [embed],
-            } as DiscordMessagePost),
-        });
-        return { content: 'Vous avez été ajouté à la séance.' };
+async function remind_recommendation_handler(body: DiscordInteraction, campaignId: string, sessionId: string): Promise<DiscordMessagePost> {
+    const userId = getInteractionUserId(body);
+    if (!userId) {
+        return { content: 'Utilisateur Discord introuvable.' };
     }
+    const { recommendation, scoredRecommendation } = await loadRecommendationContext(userId, campaignId, sessionId);
+    const remindAt = new Date();
+    remindAt.setUTCDate(remindAt.getUTCDate() + 2);
+    await updateSessionRecommendationState(userId, recommendation.sortId, 'remind_requested', {
+        feedback: 'remind_later',
+        remindAt,
+        remindCount: recommendation.remindCount + 1,
+    });
+
+    const embed = buildExpandedRecommendationEmbed(scoredRecommendation);
+    embed.footer = {
+        text: `Rappel noté pour le ${remindAt.toLocaleDateString('fr-FR')}`,
+    };
+    return {
+        content: 'Je vous le rappellerai plus tard.',
+        embeds: [embed],
+        components: buildExpandedRecommendationComponents(campaignId, scoredRecommendation),
+    };
+}
+
+async function similar_recommendation_handler(body: DiscordInteraction, campaignId: string, sessionId: string): Promise<DiscordMessagePost> {
+    const userId = getInteractionUserId(body);
+    if (!userId) {
+        return { content: 'Utilisateur Discord introuvable.' };
+    }
+    const { recommendation, scoredRecommendation, sessionRecords } = await loadRecommendationContext(userId, campaignId, sessionId);
+    const similarRecords = recommendation.similarSessionIds
+        .map((similarSessionId) => sessionRecords.find((candidate) => candidate.id === similarSessionId))
+        .filter((candidate): candidate is NonNullable<typeof candidate> => candidate !== undefined);
+    await updateSessionRecommendationState(userId, recommendation.sortId, 'expanded', {
+        feedback: 'show_similar',
+    });
+
+    return {
+        embeds: [buildSimilarSessionsEmbed(similarRecords)],
+        components: buildSimilarSessionsComponents(campaignId, sessionId, similarRecords),
+    };
+}
+
+async function back_recommendation_handler(body: DiscordInteraction, campaignId: string, sessionId: string): Promise<DiscordMessagePost> {
+    const userId = getInteractionUserId(body);
+    if (!userId) {
+        return { content: 'Utilisateur Discord introuvable.' };
+    }
+    const { scoredRecommendation } = await loadRecommendationContext(userId, campaignId, sessionId);
+    return {
+        embeds: [buildExpandedRecommendationEmbed(scoredRecommendation)],
+        components: buildExpandedRecommendationComponents(campaignId, scoredRecommendation),
+    };
+}
+
+async function pick_similar_recommendation_handler(
+    body: DiscordInteraction,
+    campaignId: string,
+    originSessionId: string,
+    selectedSessionId: string,
+): Promise<DiscordMessagePost> {
+    const userId = getInteractionUserId(body);
+    if (!userId) {
+        return { content: 'Utilisateur Discord introuvable.' };
+    }
+    const user = await getUser(userId).catch(() => undefined);
+    if (!user) {
+        return USER_NOT_FOUND_RESPONSE;
+    }
+    const [stats, sessions] = await Promise.all([
+        getUserStats(userId),
+        listSessionUnexpired(),
+    ]);
+    if (!stats) {
+        return { content: 'Statistiques utilisateur introuvables.' };
+    }
+    const sessionRecords = buildSessionRecordCandidates(sessions);
+    const recommendations = recommendSessionsForUser(user, stats, sessionRecords, 6);
+    const selectedRecommendation = recommendations.find((item) => item.session.id === selectedSessionId);
+    if (!selectedRecommendation) {
+        return { content: 'Cette séance similaire n’est plus disponible.' };
+    }
+    await ensureSessionRecommendation(userId, campaignId, selectedRecommendation, recommendations);
+    await updateSessionRecommendationState(userId, buildRecommendationSortId(campaignId, originSessionId), 'expanded', {
+        feedback: 'show_similar',
+    });
+    return {
+        embeds: [buildExpandedRecommendationEmbed(selectedRecommendation)],
+        components: buildExpandedRecommendationComponents(campaignId, selectedRecommendation),
+    };
+}
+
+async function dismiss_recommendation_handler(body: DiscordInteraction, campaignId: string, sessionId: string): Promise<DiscordMessagePost> {
+    const userId = getInteractionUserId(body);
+    if (!userId) {
+        return { content: 'Utilisateur Discord introuvable.' };
+    }
+    const recommendation = await getSessionRecommendation(userId, buildRecommendationSortId(campaignId, sessionId));
+    if (!recommendation) {
+        return { content: 'Cette recommandation est introuvable.' };
+    }
+    await updateSessionRecommendationState(userId, recommendation.sortId, 'dismissed', {
+        feedback: 'not_for_me',
+        dismissedAt: new Date(),
+    });
+    return {
+        content: 'Compris, je ne pousserai pas davantage cette suggestion.',
+        embeds: [],
+        components: [],
+    };
+}
+
+function interactionUpdateResponse(message: DiscordMessagePost): APIGatewayProxyResult {
+    return {
+        statusCode: 200,
+        body: JSON.stringify({
+            type: DiscordInteractionResponseType.UpdateMessage,
+            data: message,
+        } as DiscordInteractionResponse),
+    };
 }
 
 function export_orders_handler(): DiscordInteractionResponse {
@@ -841,6 +876,32 @@ export async function button_handler(body: DiscordInteraction): Promise<APIGatew
             const response = await remove_from_session_handler(body, user);
             await editResponse(body, response);
         }
+    } else if (
+        custom_id.startsWith('rec_more=') ||
+        custom_id.startsWith('rec_remind=') ||
+        custom_id.startsWith('rec_similar=') ||
+        custom_id.startsWith('rec_nope=') ||
+        custom_id.startsWith('rec_back=')
+    ) {
+        const parsed = parseRecommendationCustomId(custom_id);
+        if (!parsed) {
+            return interactionUpdateResponse({ content: 'Action de recommandation invalide.', embeds: [], components: [] });
+        }
+
+        await deferUpdate(body);
+        let response: DiscordMessagePost;
+        if (parsed.action === 'rec_more') {
+            response = await expand_recommendation_handler(body, parsed.campaignId, parsed.sessionId);
+        } else if (parsed.action === 'rec_remind') {
+            response = await remind_recommendation_handler(body, parsed.campaignId, parsed.sessionId);
+        } else if (parsed.action === 'rec_similar') {
+            response = await similar_recommendation_handler(body, parsed.campaignId, parsed.sessionId);
+        } else if (parsed.action === 'rec_back') {
+            response = await back_recommendation_handler(body, parsed.campaignId, parsed.sessionId);
+        } else {
+            response = await dismiss_recommendation_handler(body, parsed.campaignId, parsed.sessionId);
+        }
+        await editResponse(body, response);
     } else if (custom_id.startsWith('mark_order_processed=')) {
         const orderId = custom_id.split('=')[1];
         return {
@@ -1119,9 +1180,9 @@ export async function button_handler(body: DiscordInteraction): Promise<APIGatew
         }
 
         // Assign tickets to order items
-        for (const ticket of tickets) {
+        for (const [index, ticket] of tickets.entries()) {
             // update ticket in db
-            await putOrder(orderId.toString(), ticket.id);
+            await putOrder(orderId.toString(), ticket.id, getOrderItemDiscordUserId(orderItems[index]));
         }
 
         await updateIssue(orderId.toString(), {
@@ -1173,6 +1234,18 @@ export async function button_handler(body: DiscordInteraction): Promise<APIGatew
 export async function select_menu_handler(body: DiscordInteraction): Promise<APIGatewayProxyResult | void> {
     const { data } = body;
     const { custom_id } = data as DiscordMessageComponentData;
+
+    if (custom_id.startsWith('rec_pick=')) {
+        const parsed = parseRecommendationCustomId(custom_id);
+        const selectedSessionId = (data as DiscordMessageComponentData).values?.[0];
+        if (!parsed || !selectedSessionId) {
+            return interactionUpdateResponse({ content: 'Séance similaire invalide.', embeds: [], components: [] });
+        }
+        await deferUpdate(body);
+        const response = await pick_similar_recommendation_handler(body, parsed.campaignId, parsed.sessionId, selectedSessionId);
+        await editResponse(body, response);
+        return;
+    }
 
     if (custom_id === 'view_issues') {
         await deferResponse(body, true);
