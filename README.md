@@ -232,7 +232,19 @@ Une première intégration Algolia est prévue pour les utilisateurs via `functi
   - `poetry run ruff check utils tests`
   - `poetry run mypy utils`
   - `poetry run pytest`
-- Pour indexer les données existantes, exécuter `poetry run python utils/backfill_algolia_users.py` avec `ALGOLIA_SECRET_PATH` et `ALGOLIA_USERS_INDEX`
+- Le backfill complet s'exécute avec `poetry run python utils/algolia/build_user_stats_and_algolia_backfill.py --mode all`
+- Le backfill de l'index sessions s'exécute avec `poetry run python utils/algolia/backfill_algolia_sessions.py`
+- Les recommandations de sessions pour un utilisateur s'obtiennent avec `poetry run python utils/algolia/recommend_algolia_sessions.py <discord_user_id>`
+- Ce backfill :
+  - met en cache les données brutes localement
+  - reconstruit les `userId` manquants sur les lignes de tickets à partir de HelloAsso
+  - peuple `Efrei-Sport-Climbing-App.user-stats`
+  - pousse les fiches enrichies dans Algolia
+- L'index `esc_sessions` expose aussi du contexte social pour les recommandations :
+  - `participantPreview`
+  - `repeatParticipantNames`
+  - `dominantPromo`
+  - `similarityTags`
 
 ---
 
