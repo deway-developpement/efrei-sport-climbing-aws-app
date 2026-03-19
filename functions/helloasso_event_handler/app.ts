@@ -337,7 +337,7 @@ export const lambdaHandler = async (event: APIGatewayProxyEvent): Promise<APIGat
                         // ! log ticket files as pending
                         for (const ticket of tickets) {
                             // update ticket in db
-                            await putOrder(order.id.toString(), ticket.id);
+                            await putOrder(order.id.toString(), ticket.id, discordUserId);
                         }
 
                         // Check if the user has the according role in Discord
