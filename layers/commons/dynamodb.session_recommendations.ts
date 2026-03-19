@@ -70,7 +70,7 @@ export function unmarshallSessionRecommendationItem(item?: MarshalledSessionReco
         sessionDate: new Date(parseInt(item.sessionDate.N)),
         sessionLocation: item.sessionLocation?.S || '',
         recommendedAt: new Date(parseInt(item.recommendedAt.N)),
-        expiresAt: toTtlDate(item.expiresAt.N) || new Date(0),
+        expiresAt: toTtlDate(item.expiresAt.N)!,
         score: item.score?.N ? parseFloat(item.score.N) : 0,
         reasons: item.reasons?.L?.flatMap((value) => (value.S ? [value.S] : [])) || [],
         recommendationState: item.recommendationState.S as RecommendationState,

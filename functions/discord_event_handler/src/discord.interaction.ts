@@ -25,7 +25,7 @@ import { IssueStatus } from 'commons/dynamodb.types';
 import { getIssue } from 'commons/dynamodb.issues';
 
 export async function deferResponse(body: DiscordInteraction, ephemeral = false) {
-    fetch('https://discord.com/api/v8/interactions/' + body.id + '/' + body.token + '/callback', {
+    await fetch('https://discord.com/api/v8/interactions/' + body.id + '/' + body.token + '/callback', {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
@@ -40,7 +40,7 @@ export async function deferResponse(body: DiscordInteraction, ephemeral = false)
 }
 
 export async function deferUpdate(body: DiscordInteraction) {
-    fetch('https://discord.com/api/v8/interactions/' + body.id + '/' + body.token + '/callback', {
+    await fetch('https://discord.com/api/v8/interactions/' + body.id + '/' + body.token + '/callback', {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',

@@ -247,6 +247,9 @@ export async function joinSessionWorkflow(user: User, sessionId: string): Promis
 
     const session = await getSession(sessionId);
     const channelId = CHANNELS[session.location];
+    if (!channelId) {
+        throw new Error(`Unknown session location: ${session.location}`);
+    }
     const message = await fetchDiscordMessage(channelId, sessionId, botToken);
     const { embed, fieldValue } = getParticipantsField(message);
     const nextValue = `${fieldValue}\n- ${user.firstName} ${user.lastName}\n`.replace(/\n\n+/g, '\n');
@@ -306,6 +309,9 @@ export async function leaveSessionWorkflow(user: User, sessionId: string): Promi
 
     const session = await getSession(sessionId);
     const channelId = CHANNELS[session.location];
+    if (!channelId) {
+        throw new Error(`Unknown session location: ${session.location}`);
+    }
     const nbParticipants = await countParticipants(sessionId);
 
     if (nbParticipants === 0) {
