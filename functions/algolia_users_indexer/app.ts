@@ -1,6 +1,8 @@
 import { DynamoDBStreamEvent, DynamoDBRecord } from 'aws-lambda';
 import { deleteAlgoliaRecord, toAlgoliaUserRecord, upsertAlgoliaRecord } from 'commons/algolia.client';
 import { User } from 'commons/dynamodb.types';
+import { getUserStats } from 'commons/dynamodb.user_stats';
+import { getUser } from 'commons/dynamodb.users';
 
 const ALGOLIA_USERS_INDEX = process.env.ALGOLIA_USERS_INDEX as string;
 
@@ -29,12 +31,38 @@ function unmarshallUser(image?: Record<string, AttributeValue>): User | null {
     };
 }
 
+function isUserStatsRecord(record: DynamoDBRecord): boolean {
+    return Boolean(record.dynamodb?.Keys?.userId?.S || record.dynamodb?.NewImage?.userId?.S || record.dynamodb?.OldImage?.userId?.S);
+}
+
+async function upsertEnrichedUser(indexName: string, userId: string): Promise<void> {
+    let user: User | undefined;
+    try {
+        user = await getUser(userId);
+    } catch (error) {
+        console.log(`Skipping Algolia reindex for missing user ${userId}`, error instanceof Error ? error.message : error);
+        return;
+    }
+    const userStats = await getUserStats(user.id);
+    await upsertAlgoliaRecord(indexName, user.id, toAlgoliaUserRecord(user, userStats));
+}
+
 async function handleRecord(record: DynamoDBRecord): Promise<void> {
     const indexName = requireUsersIndex();
     const eventName = record.eventName;
     const keys = record.dynamodb?.Keys;
     const oldImage = record.dynamodb?.OldImage as Record<string, AttributeValue> | undefined;
     const newImage = record.dynamodb?.NewImage as Record<string, AttributeValue> | undefined;
+
+    if (isUserStatsRecord(record)) {
+        const userId = keys?.userId?.S || newImage?.userId?.S || oldImage?.userId?.S;
+        if (!userId) {
+            console.log('Skipping UserStats stream event without userId', JSON.stringify(record));
+            return;
+        }
+        await upsertEnrichedUser(indexName, userId);
+        return;
+    }
 
     if (eventName === 'REMOVE') {
         const objectID = keys?.id?.S || oldImage?.id?.S;
@@ -51,7 +79,7 @@ async function handleRecord(record: DynamoDBRecord): Promise<void> {
         console.log('Skipping non-user stream image', JSON.stringify(record));
         return;
     }
-    await upsertAlgoliaRecord(indexName, user.id, toAlgoliaUserRecord(user));
+    await upsertEnrichedUser(indexName, user.id);
 }
 
 export const lambdaHandler = async (event: DynamoDBStreamEvent): Promise<void> => {
