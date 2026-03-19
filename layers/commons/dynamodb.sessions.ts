@@ -16,6 +16,30 @@ import { dateToDiscordSnowflake } from "./discord.utils";
 
 const client = new DynamoDBClient({ region: "eu-west-3" });
 
+export async function listSessionParticipantIds(id: string): Promise<string[]> {
+    const { Items } = await client.send(
+        new QueryCommand({
+            ExpressionAttributeValues: {
+                ":id": { S: id },
+            },
+            ExpressionAttributeNames: {
+                "#id": "id",
+                "#sortId": "sortId",
+            },
+            KeyConditionExpression: "#id = :id",
+            ProjectionExpression: "#sortId",
+            TableName: "Efrei-Sport-Climbing-App.sessions",
+        })
+    );
+
+    return (
+        Items?.flatMap((item) => {
+            const sortId = item.sortId.S as string;
+            return sortId !== id ? [sortId] : [];
+        }) || []
+    );
+}
+
 export async function getSession(id: string): Promise<Session> {
     const { Item } = await client.send(new GetItemCommand({ TableName: "Efrei-Sport-Climbing-App.sessions", Key: { id: { S: id }, sortId: { S: id } } }));
     if (!Item) {
