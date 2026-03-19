@@ -1,4 +1,11 @@
-import { DynamoDBClient, GetItemCommand, PutItemCommand, ScanCommand, TransactWriteItemsCommand } from "@aws-sdk/client-dynamodb";
+import {
+    DynamoDBClient,
+    GetItemCommand,
+    PutItemCommand,
+    ScanCommand,
+    TransactWriteItemsCommand,
+    UpdateItemCommand,
+} from "@aws-sdk/client-dynamodb";
 import { TicketFile, OrderRecord, OrderState } from "./dynamodb.types";
 
 const client = new DynamoDBClient({ region: "eu-west-3" });
@@ -191,6 +198,7 @@ export async function getOrders(orderId: string): Promise<OrderRecord[] | null> 
     const tickets = Items.map((item: any) => ({
         ticketId: item.id.S as string,
         orderId: item.orderId.S as string,
+        userId: item.userId?.NULL ? null : ((item.userId?.S as string | undefined) || null),
         state: item.state.S as OrderState,
         date: new Date(parseInt(item.date.N as string)),
     }));
@@ -217,6 +225,7 @@ export async function listOrders(start_date: Date, end_date: Date): Promise<Orde
     const orders = Items.map((item: any) => ({
         ticketId: item.id.S as string,
         orderId: item.orderId.S as string,
+        userId: item.userId?.NULL ? null : ((item.userId?.S as string | undefined) || null),
         state: item.state.S as OrderState,
         date: new Date(parseInt(item.date.N as string)),
     }));
@@ -239,7 +248,7 @@ export async function fetchOrderExists(orderId: string): Promise<boolean> {
     return Items.length > 0;
 }
 
-export async function putOrder(orderId: string, ticketId: string): Promise<void> {
+export async function putOrder(orderId: string, ticketId: string, userId: string | null): Promise<void> {
     const ticket = await getTicket(ticketId);
     if (ticket.sold) {
         throw new Error("Ticket already sold");
@@ -253,6 +262,7 @@ export async function putOrder(orderId: string, ticketId: string): Promise<void>
                         Item: {
                             id: { S: ticketId },
                             orderId: { S: orderId },
+                            userId: userId ? { S: userId } : { NULL: true },
                             date: { N: new Date().getTime().toString() },
                             state: { S: OrderState.PENDING },
                         },
@@ -272,6 +282,22 @@ export async function putOrder(orderId: string, ticketId: string): Promise<void>
                     },
                 },
             ],
+        })
+    );
+}
+
+export async function updateOrderUserId(orderId: string, ticketId: string, userId: string | null): Promise<void> {
+    await client.send(
+        new UpdateItemCommand({
+            TableName: "Efrei-Sport-Climbing-App.tickets",
+            Key: {
+                id: { S: ticketId },
+                orderId: { S: orderId },
+            },
+            UpdateExpression: "SET userId = :userId",
+            ExpressionAttributeValues: {
+                ":userId": userId ? { S: userId } : { NULL: true },
+            },
         })
     );
 }
